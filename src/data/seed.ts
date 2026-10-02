@@ -142,6 +142,7 @@ export function defaultData(): AppData {
     objective: makeObjective('highScore', 'perf'),
     pinnedCardIds: [],
     excludedCardIds: [],
+    leaderChoice: null,
     savedTeams: [],
     lastTeam: null,
     lastBackupAt: null,

@@ -95,6 +95,9 @@ export interface Objective {
   weights: Weights;
 }
 
+/** null＝おまかせ。cardId が null なら、そのホロメンの衣装から最適なものを選ぶ */
+export type LeaderChoice = { holomemId: string; cardId: string | null } | null;
+
 export interface Settings {
   /** メンバー枠の枚数（実機で 4 か 5 か要確認のため設定値） */
   memberCount: number;
@@ -172,6 +175,7 @@ export interface AppData {
   objective: Objective;
   pinnedCardIds: string[];
   excludedCardIds: string[];
+  leaderChoice: LeaderChoice;
   savedTeams: SavedTeam[];
   lastTeam: Team | null;
   lastBackupAt: number | null;

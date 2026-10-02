@@ -22,6 +22,10 @@ export interface SearchOptions {
   /** リーダー衣装の条件を満たすカードを追加で何枚候補に入れるか */
   conditionExtra?: number;
   resultCount?: number;
+  /** リーダーにするホロメン。衣装付きカードが無ければ衣装なしで探索 */
+  leaderHolomemId?: string;
+  /** リーダーにするカード（除外リストより優先） */
+  leaderCardId?: string;
   onProgress?: (done: number, total: number) => void;
 }
 
@@ -36,8 +40,7 @@ export function searchBestTeams(ctx: EvalContext, opts: SearchOptions): TeamResu
   const solo = new Map(owned.map((c) => [c.id, soloScore(c, ctx)] as const));
   const bySolo = (a: Card, b: Card) => solo.get(b.id)! - solo.get(a.id)!;
 
-  const leaders: (Card | null)[] = owned.filter((c) => c.costume);
-  if (leaders.length === 0) leaders.push(null);
+  const leaders = leaderCandidates(ctx, owned, opts, bySolo);
 
   const memberCount = ctx.settings.memberCount;
   const best: { key: string; score: number; team: Team }[] = [];
@@ -99,6 +102,22 @@ export function searchBestTeams(ctx: EvalContext, opts: SearchOptions): TeamResu
     const evaluation = evaluateTeam(b.team, ctx);
     return { team: b.team, evaluation, hints: buildHints(b.team, evaluation, ctx, owned, opts.pinnedCardIds) };
   });
+}
+
+/** リーダー候補。指定が無ければ衣装付きカード全部、無ければリーダーなし */
+export function leaderCandidates(ctx: EvalContext, owned: Card[], opts: SearchOptions, bySolo: (a: Card, b: Card) => number): (Card | null)[] {
+  if (opts.leaderCardId) {
+    const c = ctx.cards.get(opts.leaderCardId);
+    return c ? [c] : [];
+  }
+  if (opts.leaderHolomemId) {
+    const mine = owned.filter((c) => c.holomemId === opts.leaderHolomemId);
+    const withCostume = mine.filter((c) => c.costume);
+    if (withCostume.length > 0) return withCostume;
+    return mine.sort(bySolo).slice(0, 1);
+  }
+  const all: (Card | null)[] = owned.filter((c) => c.costume);
+  return all.length > 0 ? all : [null];
 }
 
 /** 未達の条件について「誰を誰と入れ替えれば発動するか」を 1 枚入れ替えで探す */

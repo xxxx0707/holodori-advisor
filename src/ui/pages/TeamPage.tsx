@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState } from 'react';
 import { BREAKDOWN_KEYS, BREAKDOWN_LABEL, evaluateTeam, type EvalContext } from '../../model/evaluate';
 import { makeObjective, PRESET_DESC, PRESET_LABEL } from '../../model/objectives';
-import type { AppData, Card, ObjectivePresetId, Param, Team, Weights } from '../../model/types';
+import type { AppData, Card, LeaderChoice, ObjectivePresetId, Param, Team, Weights } from '../../model/types';
 import { PARAMS, PARAM_LABEL, TYPE_LABEL } from '../../model/types';
 import type { TeamResult } from '../../optimizer/team';
 import type { TeamWorkerMessage, TeamWorkerRequest } from '../../optimizer/team.worker';
 import { newId, type Update } from '../../store/store';
-import { describeCondition, describeEffect, fmt, holomemName } from '../format';
+import { describeCondition, describeEffect, describeSkill, fmt, holomemName } from '../format';
 
 const PRESETS: ObjectivePresetId[] = ['highScore', 'clear', 'fullCombo', 'focusParam', 'custom'];
 const WEIGHT_KEYS: { key: Exclude<keyof Weights, 'params'>; label: string }[] = [
@@ -83,6 +83,7 @@ export default function TeamPage({ data, update, goTo }: { data: AppData; update
       objective: data.objective,
       pinnedCardIds: pinned,
       excludedCardIds: data.excludedCardIds,
+      leaderChoice: data.leaderChoice,
     };
     w.postMessage(req);
   };
@@ -117,6 +118,11 @@ export default function TeamPage({ data, update, goTo }: { data: AppData; update
   const cardOf = (id: string | null): Card | undefined => (id ? ctx.cards.get(id) : undefined);
   const hasCards = data.cards.length > 0;
   const current = results?.[selected];
+
+  const setLeaderChoice = (choice: LeaderChoice) => {
+    update((d) => ({ ...d, leaderChoice: choice }));
+    setResultsCached(null);
+  };
   const top = results?.[0];
 
   return (
@@ -168,6 +174,8 @@ export default function TeamPage({ data, update, goTo }: { data: AppData; update
         </details>
       </section>
 
+      <LeaderSection data={data} ctx={ctx} onChange={setLeaderChoice} />
+
       {(data.pinnedCardIds.length > 0 || data.excludedCardIds.length > 0) && (
         <section className="card">
           <div className="spread">
@@ -215,7 +223,13 @@ export default function TeamPage({ data, update, goTo }: { data: AppData; update
       {results && results.length === 0 && <div className="card empty">条件に合う編成が見つかりませんでした。</div>}
       {results && results.length > 0 && current && (
         <section>
-          <div className="chips" role="tablist" style={{ marginTop: 16 }}>
+          {data.leaderChoice && (
+            <p className="small muted" style={{ marginTop: 16, marginBottom: 0 }}>
+              リーダー: {holomemName(ctx.holomems, data.leaderChoice.holomemId)}
+              {data.leaderChoice.cardId ? `（${ctx.cards.get(data.leaderChoice.cardId)?.costume?.name ?? "指定カード"}）` : "（衣装おまかせ）"}で探索
+            </p>
+          )}
+          <div className="chips" role="tablist" style={{ marginTop: 8 }}>
             {results.map((r, i) => (
               <button key={i} role="tab" className="chip" aria-pressed={selected === i} onClick={() => setSelected(i)}>
                 案{i + 1}（{fmt(r.evaluation.score)}）
@@ -410,5 +424,78 @@ function SavedTeamRow({ name, team, savedScore, ctx, onDelete }: { name: string;
         保存時 {fmt(savedScore)} → 今の目的・所持で {now === null ? '評価不可' : fmt(now)}
       </p>
     </div>
+  );
+}
+
+function LeaderSection({ data, ctx, onChange }: { data: AppData; ctx: EvalContext; onChange: (c: LeaderChoice) => void }) {
+  const choice = data.leaderChoice;
+  // 所持カードがあるホロメンだけを、最初の所属でグループ分けして出す
+  const groups = useMemo(() => {
+    const owned = new Set(data.cards.map((c) => c.holomemId));
+    const m = new Map<string, { id: string; name: string }[]>();
+    for (const h of data.holomems) {
+      if (!owned.has(h.id)) continue;
+      const g = h.affiliations[0] ?? "その他";
+      if (!m.has(g)) m.set(g, []);
+      m.get(g)!.push({ id: h.id, name: h.name });
+    }
+    return [...m.entries()];
+  }, [data.cards, data.holomems]);
+  const firstHolomem = groups[0]?.[1][0]?.id;
+  const costumeCards = choice ? data.cards.filter((c) => c.holomemId === choice.holomemId && c.costume) : [];
+  const noCostume = !!choice && costumeCards.length === 0;
+
+  return (
+    <section className="card stack">
+      <h2 style={{ marginTop: 0 }}>リーダー</h2>
+      <div className="chips" role="group" aria-label="リーダーの決め方">
+        <button className="chip" aria-pressed={!choice} onClick={() => onChange(null)}>
+          おまかせ
+        </button>
+        <button className="chip" aria-pressed={!!choice} disabled={!firstHolomem} onClick={() => !choice && firstHolomem && onChange({ holomemId: firstHolomem, cardId: null })}>
+          ホロメンを指定
+        </button>
+      </div>
+      {!choice ? (
+        <p className="muted">所持している衣装付きカードを全部リーダー候補にして探します。</p>
+      ) : (
+        <>
+          <div className="fields">
+            <label className="field">
+              ホロメン
+              <select value={choice.holomemId} onChange={(e) => onChange({ holomemId: e.target.value, cardId: null })}>
+                {groups.map(([g, hs]) => (
+                  <optgroup key={g} label={g}>
+                    {hs.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            {!noCostume && (
+              <label className="field">
+                衣装
+                <select value={choice.cardId ?? ""} onChange={(e) => onChange({ ...choice, cardId: e.target.value || null })}>
+                  <option value="">おまかせ（{costumeCards.length}着から最適）</option>
+                  {costumeCards.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.costume!.name || c.name}（★{c.rarity}）
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          {noCostume ? (
+            <p className="banner small">{holomemName(ctx.holomems, choice.holomemId)}の衣装付きカードが登録されていないため、衣装なしのリーダーとして探します。</p>
+          ) : choice.cardId && ctx.cards.get(choice.cardId)?.costume ? (
+            <p className="small muted">衣装スキル: {describeSkill(ctx.cards.get(choice.cardId)!.costume!.skill)}</p>
+          ) : null}
+        </>
+      )}
+    </section>
   );
 }

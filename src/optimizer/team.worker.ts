@@ -1,4 +1,4 @@
-import type { Card, Holomem, Objective, Settings } from '../model/types';
+import type { Card, Holomem, LeaderChoice, Objective, Settings } from '../model/types';
 import { searchBestTeams, type TeamResult } from './team';
 
 export interface TeamWorkerRequest {
@@ -8,6 +8,7 @@ export interface TeamWorkerRequest {
   objective: Objective;
   pinnedCardIds: string[];
   excludedCardIds: string[];
+  leaderChoice: LeaderChoice;
 }
 
 export type TeamWorkerMessage =
@@ -29,6 +30,8 @@ self.onmessage = (e: MessageEvent<TeamWorkerRequest>) => {
       {
         pinnedCardIds: req.pinnedCardIds,
         excludedCardIds: req.excludedCardIds,
+        leaderHolomemId: req.leaderChoice?.holomemId,
+        leaderCardId: req.leaderChoice?.cardId ?? undefined,
         onProgress: (done, total) => post({ type: 'progress', done, total }),
       },
     );

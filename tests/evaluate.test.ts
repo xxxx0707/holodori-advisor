@@ -104,3 +104,45 @@ describe('編成探索', () => {
     expect(costumeHint?.addCardId).toBeNull(); // 除外したので候補なし
   });
 });
+
+describe('指定リーダーでの探索', () => {
+  const costume = (target: string) => ({
+    name: target,
+    skill: { condition: { kind: 'affiliationCount' as const, target, min: 2 }, effect: { kind: 'paramUp' as const, param: 'all' as const, value: 200 } },
+  });
+  const cards = [
+    card('L1', 'a', 'happy', 0, { costume: costume('G3') }),
+    card('L2', 'a', 'happy', 0, { costume: costume('G2') }),
+    card('C1', 'c', 'cute', 500, { costume: costume('G1') }),
+    card('b1', 'b', 'cute', 1000),
+    card('d1', 'd', 'cute', 800),
+    card('e1', 'e', 'cute', 300),
+    card('f1', 'f', 'cute', 300),
+  ];
+
+  it('ホロメン指定時は、全結果のリーダーがそのホロメンの衣装付きカードになる', () => {
+    const rs = searchBestTeams(ctx(cards), { pinnedCardIds: [], excludedCardIds: [], leaderHolomemId: 'a' });
+    expect(rs.length).toBeGreaterThan(0);
+    for (const r of rs) expect(['L1', 'L2']).toContain(r.team.leaderCardId);
+  });
+
+  it('カード指定時はそのカードがリーダーになる（除外リストに入っていても）', () => {
+    const rs = searchBestTeams(ctx(cards), { pinnedCardIds: [], excludedCardIds: ['L2'], leaderCardId: 'L2' });
+    for (const r of rs) expect(r.team.leaderCardId).toBe('L2');
+    expect(rs[0].evaluation.costumeActive).toBe(true); // G2 = c, d の2人
+  });
+
+  it('衣装付きカードが無いホロメンを指定しても、衣装なしのリーダーで結果が出る', () => {
+    const rs = searchBestTeams(ctx(cards), { pinnedCardIds: [], excludedCardIds: [], leaderHolomemId: 'b' });
+    expect(rs[0].team.leaderCardId).toBe('b1');
+    expect(rs[0].team.memberCardIds).not.toContain('b1');
+  });
+
+  it('指定リーダーの最良は、おまかせ探索での同リーダーの最良と一致する', () => {
+    const c = ctx(cards);
+    const [fixed] = searchBestTeams(c, { pinnedCardIds: [], excludedCardIds: [], leaderCardId: 'L1' });
+    const all = searchBestTeams(c, { pinnedCardIds: [], excludedCardIds: [], resultCount: 50 });
+    const bestL1 = all.find((r) => r.team.leaderCardId === 'L1')!;
+    expect(fixed.evaluation.score).toBeCloseTo(bestL1.evaluation.score);
+  });
+});
